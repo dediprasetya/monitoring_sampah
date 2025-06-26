@@ -1,100 +1,168 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <!-- Bootstrap 5 CSS -->
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-<!-- Bootstrap Icons (optional) -->
-<link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
-
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monitoring Tempat Sampah</title>
+
+    <!-- Bootstrap 5 & Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css" rel="stylesheet">
+
     <style>
         body {
             margin: 0;
             font-family: Arial, sans-serif;
+        }
+
+        .wrapper {
             display: flex;
-        }
-
-        .sidebar {
-            width: 200px;
-            background-color: #2c3e50;
             height: 100vh;
-            color: white;
-            position: fixed;
-            top: 0;
-            left: 0;
-            overflow: auto;
+            overflow: hidden;
         }
 
-        .sidebar h2 {
+        #sidebar {
+            width: 220px;
+            background-color: #2c3e50;
+            color: white;
+            transition: transform 0.3s ease;
+            z-index: 1001;
+        }
+
+        #sidebar h5 {
+            padding: 20px;
             text-align: center;
-            padding: 20px 0;
             border-bottom: 1px solid #444;
         }
 
-        .sidebar a {
+        #sidebar a {
             display: block;
             color: white;
-            padding: 15px 20px;
+            padding: 12px 20px;
             text-decoration: none;
-            transition: background 0.3s;
         }
 
-        .sidebar a:hover {
+        #sidebar a:hover, #sidebar a.active {
             background-color: #34495e;
         }
 
-        .content {
-            margin-left: 200px;
-            padding: 20px;
+        .main {
             flex: 1;
+            display: flex;
+            flex-direction: column;
         }
 
-        .navbar {
+        .navbar-custom {
             background-color: #2980b9;
             color: white;
-            padding: 15px 20px;
-            text-align: center;
-            font-size: 20px;
+            z-index: 1002;
         }
 
+        .navbar-custom .navbar-brand,
+        .navbar-custom .nav-link {
+            color: white;
+        }
+
+        .content-area {
+            padding: 20px;
+            overflow-y: auto;
+            flex: 1;
+            background-color: #f5f5f5;
+        }
+
+        /* Responsive Sidebar (slide from left) */
         @media (max-width: 768px) {
-            .sidebar {
-                position: relative;
+            #sidebar {
+                position: fixed;
+                top: 0;
+                left: -220px;
+                height: 100%;
+                transform: translateX(0);
+            }
+
+            #sidebar.active {
+                left: 0;
+            }
+
+            .overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
                 width: 100%;
-                height: auto;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.5);
+                z-index: 1000;
             }
 
-            .content {
-                margin-left: 0;
-            }
-
-            .navbar {
-                text-align: left;
+            .overlay.show {
+                display: block;
             }
         }
     </style>
 </head>
 <body>
 
-    <div class="sidebar">
-        <h2>Monitoring</h2>
-        <a href="{{ url('/') }}">📊 Pemantauan Realtime</a>
-        <a href="{{ url('/grafik') }}">📈 Pemantauan Grafik</a>
-        <a class="nav-link" href="{{ route('riwayat') }}">Riwayat Monitoring</a>
-        <a class="nav-link" href="{{ route('nonfuzzy') }}">Monitoring Non-Fuzzy</a>
-        <a class="nav-link" href="{{ route('users.index') }}">Manajemen User</a>
-        <a href="{{ url('/logout') }}">logout</a>
+<div class="wrapper">
+    <!-- Overlay for mobile -->
+    <div class="overlay" id="overlay"></div>
+
+    <!-- Sidebar -->
+    <div id="sidebar">
+        <h5>🗑️ Monitoring</h5>
+        <a href="{{ route('dashboard') }}">📊 Pemantauan Realtime</a>
+        <a href="{{ route('grafik') }}">📈 Grafik</a>
+        <a href="{{ route('riwayat') }}">🕓 Riwayat</a>
+
+        @if(auth()->user()->role === 'admin')
+            <a href="{{ route('nonfuzzy') }}">🧠 Non-Fuzzy</a>
+            <a href="{{ route('users.index') }}">👤 Manajemen User</a>
+            <a href="{{ route('export.excel') }}">📥 Export Excel</a>
+        @endif
+
+        <a href="{{ route('logout') }}" class="text-danger">🚪 Logout</a>
     </div>
 
-    <div class="content">
-        <div class="navbar">
-            Aplikasi Monitoring Tempat Sampah
+    <!-- Main content -->
+    <div class="main">
+        <nav class="navbar navbar-expand-lg navbar-custom">
+            <div class="container-fluid">
+                <button class="btn btn-outline-light me-2 d-md-none" id="toggleSidebar">
+                    <i class="bi bi-list"></i>
+                </button>
+                <a class="navbar-brand" href="#">Monitoring Sampah</a>
+
+                <div class="ms-auto">
+                    @auth
+                        <span class="text-white me-3"><i class="bi bi-person-circle"></i> {{ auth()->user()->name }}</span>
+                        <a class="btn btn-outline-light btn-sm" href="{{ route('logout') }}">Logout</a>
+                    @endauth
+                </div>
+            </div>
+        </nav>
+
+        <div class="content-area">
+            @yield('content')
         </div>
-
-        @yield('content')
     </div>
+</div>
 
+<!-- Bootstrap & Sidebar Toggle Script -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('overlay');
+    const toggleBtn = document.getElementById('toggleSidebar');
+
+    toggleBtn.addEventListener('click', () => {
+        sidebar.classList.toggle('active');
+        overlay.classList.toggle('show');
+    });
+
+    overlay.addEventListener('click', () => {
+        sidebar.classList.remove('active');
+        overlay.classList.remove('show');
+    });
+</script>
 </body>
 </html>

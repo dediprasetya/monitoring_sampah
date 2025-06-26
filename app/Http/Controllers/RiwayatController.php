@@ -10,11 +10,15 @@ class RiwayatController extends Controller
     public function index()
     {
         $logs = SampahLog::latest()->paginate(20);
-        return view('riwayat', compact('logs'));
+        return view(auth()->user()->role === 'petugas' ? 'petugas.riwayat' : 'admin.riwayat', compact('logs'));
     }
 
     public function hapus(Request $request)
     {
+        if (auth()->user()->role !== 'admin') {
+            abort(403, 'Akses ditolak.');
+        }
+
         $request->validate([
             'tanggal_awal' => 'required|date',
             'tanggal_akhir' => 'required|date|after_or_equal:tanggal_awal',

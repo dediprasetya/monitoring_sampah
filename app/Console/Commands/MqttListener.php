@@ -125,6 +125,10 @@ class MqttListener extends Command
 
    private function fuzzyMamdani($a, $b)
     {
+        // Ubah jarak jadi tinggi sampah
+        $tinggiA = 35 - $a;
+        $tinggiB = 35 - $b;
+
         // Fungsi keanggotaan segitiga
         $membership = function($x, $a, $b, $c) {
             if ($x <= $a || $x >= $c) return 0;
@@ -133,34 +137,32 @@ class MqttListener extends Command
             else return ($c - $x) / ($c - $b);
         };
 
-        // Derajat keanggotaan input
-        $A_dekat  = $membership($a, 0, 5, 10);
-        $A_sedang = $membership($a, 5, 15, 25);
-        $A_jauh   = $membership($a, 20, 30, 35);
+        // Derajat keanggotaan input TINGGI (bukan jarak!)
+        $A_rendah  = $membership($tinggiA, 0, 5, 10);     // Kosong
+        $A_sedang = $membership($tinggiA, 5, 15, 25);
+        $A_tinggi   = $membership($tinggiA, 20, 30, 35);   // Penuh
 
-        $B_dekat  = $membership($b, 0, 5, 10);
-        $B_sedang = $membership($b, 5, 15, 25);
-        $B_jauh   = $membership($b, 20, 30, 35);
+        $B_rendah  = $membership($tinggiB, 0, 5, 10);
+        $B_sedang = $membership($tinggiB, 5, 15, 25);
+        $B_tinggi   = $membership($tinggiB, 20, 30, 35);
 
-        // Aturan dan output z untuk tiap kombinasi
+        // Aturan fuzzy
         $rules = [
-            [min($A_dekat, $B_dekat),     5],   // PENUH
-            [min($A_dekat, $B_sedang),    10],
-            [min($A_dekat, $B_jauh),      15],
-            [min($A_sedang, $B_dekat),    10],
-            [min($A_sedang, $B_sedang),   15],  // SEDANG
-            [min($A_sedang, $B_jauh),     20],
-            [min($A_jauh, $B_dekat),      15],
-            [min($A_jauh, $B_sedang),     20],
-            [min($A_jauh, $B_jauh),       30],  // KOSONG
+            [min($A_tinggi, $B_tinggi),     30],   // PENUH
+            [min($A_tinggi, $B_sedang),     25],
+            [min($A_tinggi, $B_rendah),     20],
+            [min($A_sedang, $B_tinggi),     25],
+            [min($A_sedang, $B_sedang),     20],   // SEDANG
+            [min($A_sedang, $B_rendah),     15],
+            [min($A_rendah, $B_tinggi),     20],
+            [min($A_rendah, $B_sedang),     15],
+            [min($A_rendah, $B_rendah),     5],    // KOSONG
         ];
 
-        // ==============================
-        // Defuzzifikasi: Centroid Integral
-        // ==============================
+        // Defuzzifikasi: Centroid Method
         $zMin = 0;
         $zMax = 35;
-        $step = 0.1; // Semakin kecil = semakin presisi
+        $step = 0.1;
         $numerator = 0;
         $denominator = 0;
 
@@ -168,12 +170,10 @@ class MqttListener extends Command
             $mu = 0;
 
             foreach ($rules as [$alpha, $z_output]) {
-                // Fungsi keanggotaan output (segitiga sempit di sekitar z_output ±5)
                 $μz = $membership($z, $z_output - 5, $z_output, $z_output + 5);
-                $mu = max($mu, min($alpha, $μz)); // max untuk OR antar aturan
+                $mu = max($mu, min($alpha, $μz));
             }
 
-            // Trapezoidal approximation
             $numerator += $z * $mu * $step;
             $denominator += $mu * $step;
         }
