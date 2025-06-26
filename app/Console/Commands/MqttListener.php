@@ -7,6 +7,7 @@ use PhpMqtt\Client\MqttClient;
 use PhpMqtt\Client\ConnectionSettings;
 use PhpMqtt\Client\Socket\TlsSocket;
 use App\Models\SampahLog;
+use App\Models\SampahLogNonFuzzy;
 
 class MqttListener extends Command
 {
@@ -55,12 +56,12 @@ class MqttListener extends Command
         $mqtt->loop(true);
     }
 
-    private function processIfReady()
+   private function processIfReady()
     {
         if ($this->jarakA !== null && $this->jarakB !== null) {
+            // Proses Fuzzy Mamdani
             $volume = $this->fuzzyMamdani($this->jarakA, $this->jarakB);
 
-            // Status berdasarkan volume (berasal dari fuzzy)
             $status = 'KOSONG';
             if ($volume >= 26) {
                 $status = 'PENUH';
@@ -68,7 +69,6 @@ class MqttListener extends Command
                 $status = 'SEDANG';
             }
 
-            // Rekomendasi berdasarkan volume (tanpa threshold kaku)
             $rekomendasi = 'TIDAK';
             if ($volume >= 30) {
                 $rekomendasi = 'SEGERA BERSIHKAN';
@@ -76,7 +76,7 @@ class MqttListener extends Command
                 $rekomendasi = 'PERLU DIPANTAU';
             }
 
-            // Simpan ke database
+            // ✅ Simpan ke tabel fuzzy (sampah_logs)
             SampahLog::create([
                 'jarakA' => $this->jarakA,
                 'jarakB' => $this->jarakB,
@@ -85,7 +85,35 @@ class MqttListener extends Command
                 'rekomendasi' => $rekomendasi,
             ]);
 
-            $this->info("Data disimpan: A={$this->jarakA} B={$this->jarakB} => Volume={$volume} Status={$status} Rekomendasi={$rekomendasi}");
+            // =============================
+            // Proses Non-Fuzzy (Threshold Biasa)
+            // =============================
+            $volume_nf = 35 - (($this->jarakA + $this->jarakB) / 2); // contoh rumus non-fuzzy
+            $status_nf = 'KOSONG';
+            if ($volume_nf >= 26) {
+                $status_nf = 'PENUH';
+            } elseif ($volume_nf >= 13) {
+                $status_nf = 'SEDANG';
+            }
+
+            $rekomendasi_nf = 'TIDAK';
+            if ($volume_nf >= 30) {
+                $rekomendasi_nf = 'SEGERA BERSIHKAN';
+            } elseif ($volume_nf >= 20) {
+                $rekomendasi_nf = 'PERLU DIPANTAU';
+            }
+
+            // ✅ Simpan ke tabel non-fuzzy (sampah_logs_nonfuzzy)
+            \App\Models\SampahLogNonFuzzy::create([
+                'jarakA' => $this->jarakA,
+                'jarakB' => $this->jarakB,
+                'volume' => $volume_nf,
+                'status' => $status_nf,
+                'rekomendasi' => $rekomendasi_nf,
+            ]);
+
+            $this->info("Data Fuzzy: A={$this->jarakA} B={$this->jarakB} => Volume={$volume} Status={$status}");
+            $this->info("Data Non-Fuzzy: Volume={$volume_nf} Status={$status_nf}");
 
             // Reset nilai agar tidak membaca dua kali
             $this->jarakA = null;
@@ -94,9 +122,10 @@ class MqttListener extends Command
     }
 
 
-    private function fuzzyMamdani($a, $b)
+
+   private function fuzzyMamdani($a, $b)
     {
-        // Fungsi keanggotaan segitiga untuk jarak
+        // Fungsi keanggotaan segitiga
         $membership = function($x, $a, $b, $c) {
             if ($x <= $a || $x >= $c) return 0;
             elseif ($x == $b) return 1;
@@ -104,37 +133,53 @@ class MqttListener extends Command
             else return ($c - $x) / ($c - $b);
         };
 
-        // Derajat keanggotaan untuk masing-masing input
-        $A_dekat  = $membership($a, 0, 0, 10);
+        // Derajat keanggotaan input
+        $A_dekat  = $membership($a, 0, 5, 10);
         $A_sedang = $membership($a, 5, 15, 25);
-        $A_jauh   = $membership($a, 20, 35, 35);
+        $A_jauh   = $membership($a, 20, 30, 35);
 
-        $B_dekat  = $membership($b, 0, 0, 10);
+        $B_dekat  = $membership($b, 0, 5, 10);
         $B_sedang = $membership($b, 5, 15, 25);
-        $B_jauh   = $membership($b, 20, 35, 35);
+        $B_jauh   = $membership($b, 20, 30, 35);
 
-        // Aturan fuzzy (contoh 3 nilai output: 5, 15, 30)
+        // Aturan dan output z untuk tiap kombinasi
         $rules = [
-            [min($A_dekat, $B_dekat),     5],
+            [min($A_dekat, $B_dekat),     5],   // PENUH
             [min($A_dekat, $B_sedang),    10],
             [min($A_dekat, $B_jauh),      15],
             [min($A_sedang, $B_dekat),    10],
-            [min($A_sedang, $B_sedang),   15],
+            [min($A_sedang, $B_sedang),   15],  // SEDANG
             [min($A_sedang, $B_jauh),     20],
             [min($A_jauh, $B_dekat),      15],
             [min($A_jauh, $B_sedang),     20],
-            [min($A_jauh, $B_jauh),       30],
+            [min($A_jauh, $B_jauh),       30],  // KOSONG
         ];
 
-        // Defuzzifikasi (metode rata-rata terbobot)
+        // ==============================
+        // Defuzzifikasi: Centroid Integral
+        // ==============================
+        $zMin = 0;
+        $zMax = 35;
+        $step = 0.1; // Semakin kecil = semakin presisi
         $numerator = 0;
         $denominator = 0;
-        foreach ($rules as [$alpha, $z]) {
-            $numerator += $alpha * $z;
-            $denominator += $alpha;
+
+        for ($z = $zMin; $z <= $zMax; $z += $step) {
+            $mu = 0;
+
+            foreach ($rules as [$alpha, $z_output]) {
+                // Fungsi keanggotaan output (segitiga sempit di sekitar z_output ±5)
+                $μz = $membership($z, $z_output - 5, $z_output, $z_output + 5);
+                $mu = max($mu, min($alpha, $μz)); // max untuk OR antar aturan
+            }
+
+            // Trapezoidal approximation
+            $numerator += $z * $mu * $step;
+            $denominator += $mu * $step;
         }
 
         return $denominator == 0 ? 0 : $numerator / $denominator;
-            }
+    }
+
 
 }

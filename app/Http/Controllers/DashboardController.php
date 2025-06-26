@@ -24,4 +24,16 @@ class DashboardController extends Controller
     //{
     //    return Excel::download(new SampahExport, 'data_sampah.xlsx');
     //}
+    public function riwayat()
+    {
+        $logs = SampahLog::latest()->paginate(20); // atau sesuaikan
+        return view('riwayat', compact('logs'));
+    }
+
+    public function nonfuzzy()
+    {
+        $logs = \App\Models\SampahLogNonFuzzy::latest()->paginate(20);
+        return view('nonfuzzy', compact('logs'));
+    }
+
 }
