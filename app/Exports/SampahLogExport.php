@@ -10,12 +10,20 @@ class SampahLogExport implements FromCollection, WithHeadings
 {
     public function collection()
     {
-        return SampahLog::all(['created_at', 'jarakA', 'jarakB', 'volume', 'status', 'rekomendasi']);
+        return SampahLog::all()->map(function ($item) {
+            return [
+                'created_at'     => $item->created_at->timezone('Asia/Jakarta')->format('d-m-Y H:i:s'),
+                'Jarak A'     => $item->jarakA . ' cm',
+                'Jarak B'     => $item->jarakB . ' cm',
+                'Volume'      => $item->volume . ' cm',
+                'Status'      => $item->status,
+                'Rekomendasi' => $item->rekomendasi,
+            ];
+        });
     }
 
     public function headings(): array
     {
-        return ['Tanggal', 'Jarak A', 'Jarak B', 'Volume', 'Status', 'Rekomendasi'];
+        return ['Tanggal', 'Jarak A', 'Jarak B', 'Tinggi Sampah', 'Status', 'Rekomendasi'];
     }
 }
-

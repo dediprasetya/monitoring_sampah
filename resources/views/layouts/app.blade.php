@@ -118,6 +118,7 @@
             <a href="{{ route('nonfuzzy') }}">🧠 Non-Fuzzy</a>
             <a href="{{ route('users.index') }}">👤 Manajemen User</a>
             <a href="{{ route('export.excel') }}">📥 Export Excel</a>
+            <a href="{{ route('analisis.index') }}">📊 Analisis Perbandingan</a>
         @endif
 
         <a href="{{ route('logout') }}" class="text-danger">🚪 Logout</a>

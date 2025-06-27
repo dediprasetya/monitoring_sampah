@@ -27,10 +27,13 @@ Route::middleware('auth')->group(function () {
     Route::middleware('checkRole:admin')->group(function () {
         Route::post('/riwayat/hapus', [RiwayatController::class, 'hapus'])->name('riwayat.hapus');
         Route::get('/nonfuzzy', [DashboardController::class, 'nonfuzzy'])->name('nonfuzzy');
+        Route::post('/nonfuzzy/hapus', [DashboardController::class, 'hapusNonfuzzy'])->name('nonfuzzy.hapus');
         Route::get('/export-excel', function () {
             return Excel::download(new SampahLogExport, 'data-sampah.xlsx');
         })->name('export.excel');
         Route::resource('/users', UserController::class);
+         Route::get('/analisis', [\App\Http\Controllers\AnalisisController::class, 'index'])->name('analisis.index');
+        Route::get('/analisis/export', [\App\Http\Controllers\AnalisisController::class, 'export'])->name('analisis.export');
     });
 
 });

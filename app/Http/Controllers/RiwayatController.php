@@ -7,10 +7,25 @@ use App\Models\SampahLog;
 
 class RiwayatController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $logs = SampahLog::latest()->paginate(20);
-        return view(auth()->user()->role === 'petugas' ? 'petugas.riwayat' : 'admin.riwayat', compact('logs'));
+        $query = SampahLog::query();
+
+        if ($request->filled('tanggal_awal') && $request->filled('tanggal_akhir')) {
+            $query->whereBetween('created_at', [
+                $request->tanggal_awal . ' 00:00:00',
+                $request->tanggal_akhir . ' 23:59:59'
+            ]);
+        }
+
+        $logs = $query->latest()->paginate(20);
+
+        if ($request->ajax()) {
+            return view('partials.tabel-riwayat', compact('logs'))->render();
+        }
+
+        $view = auth()->user()->role === 'petugas' ? 'petugas.riwayat' : 'admin.riwayat';
+        return view($view, compact('logs'));
     }
 
     public function hapus(Request $request)
@@ -25,8 +40,8 @@ class RiwayatController extends Controller
         ]);
 
         SampahLog::whereBetween('created_at', [
-            $request->tanggal_awal,
-            $request->tanggal_akhir
+            $request->tanggal_awal . ' 00:00:00',
+            $request->tanggal_akhir . ' 23:59:59'
         ])->delete();
 
         return redirect()->back()->with('success', 'Riwayat berhasil dihapus.');
