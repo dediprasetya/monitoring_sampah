@@ -9,9 +9,9 @@ use PhpMqtt\Client\Socket\TlsSocket;
 use App\Models\SampahLog;
 use App\Models\SampahLogNonFuzzy;
 
-class MqttListener extends Command
+class MqttListener2 extends Command
 {
-    protected $signature = 'mqtt:listen';
+    protected $signature = 'mqtt:listen2';
     protected $description = 'Listen to MQTT data from HiveMQ';
 
     private $jarakA = null;
@@ -59,31 +59,38 @@ class MqttListener extends Command
    private function processIfReady()
     {
         if ($this->jarakA !== null && $this->jarakB !== null) {
-            // Hitung waktu mulai untuk pengujian kinerja fuzzy
             $startTime = microtime(true);
-            // Proses Fuzzy Mamdani
             $volume = $this->fuzzyMamdani($this->jarakA, $this->jarakB);
-
-            // Hitung durasi proses fuzzy
             $endTime = microtime(true);
-            $fuzzyExecutionTime = ($endTime - $startTime) * 1000; // dalam ms
+            $fuzzyExecutionTime = ($endTime - $startTime) * 1000;
             $this->info("⏱ Waktu eksekusi Fuzzy Mamdani: {$fuzzyExecutionTime} ms");
 
+            // 🔶 FUZZY KEANGGOTAAN UNTUK STATUS
+            $status_kosong = $this->trapezoid($volume, 0, 0, 5, 10);
+            $status_sedang = $this->triangle($volume, 10, 17.5, 25);
+            $status_penuh  = $this->trapezoid($volume, 20, 25, 35, 35);
+
             $status = 'KOSONG';
-            if ($volume >= 26) {
+            $maxStatus = max($status_kosong, $status_sedang, $status_penuh);
+            if ($maxStatus == $status_penuh) {
                 $status = 'PENUH';
-            } elseif ($volume >= 13) {
+            } elseif ($maxStatus == $status_sedang) {
                 $status = 'SEDANG';
             }
 
+            // 🔶 FUZZY KEANGGOTAAN UNTUK REKOMENDASI
+            $rekomendasi_tidak = $this->trapezoid($volume, 0, 0, 10, 15);
+            $rekomendasi_pantau = $this->triangle($volume, 10, 20, 30);
+            $rekomendasi_segera = $this->trapezoid($volume, 25, 30, 35, 35);
+
             $rekomendasi = 'TIDAK';
-            if ($volume >= 30) {
+            $maxRek = max($rekomendasi_tidak, $rekomendasi_pantau, $rekomendasi_segera);
+            if ($maxRek == $rekomendasi_segera) {
                 $rekomendasi = 'SEGERA BERSIHKAN';
-            } elseif ($volume >= 20) {
+            } elseif ($maxRek == $rekomendasi_pantau) {
                 $rekomendasi = 'PERLU DIPANTAU';
             }
 
-            // ✅ Simpan ke tabel fuzzy (sampah_logs)
             SampahLog::create([
                 'jarakA' => $this->jarakA,
                 'jarakB' => $this->jarakB,
@@ -92,10 +99,8 @@ class MqttListener extends Command
                 'rekomendasi' => $rekomendasi,
             ]);
 
-            // =============================
-            // Proses Non-Fuzzy (Threshold Biasa)
-            // =============================
-            $volume_nf = 35 - (($this->jarakA + $this->jarakB) / 2); // contoh rumus non-fuzzy
+            // Tetap gunakan metode threshold untuk pembanding non-fuzzy
+            $volume_nf = 35 - (($this->jarakA + $this->jarakB) / 2);
             $status_nf = 'KOSONG';
             if ($volume_nf >= 26) {
                 $status_nf = 'PENUH';
@@ -110,8 +115,7 @@ class MqttListener extends Command
                 $rekomendasi_nf = 'PERLU DIPANTAU';
             }
 
-            // ✅ Simpan ke tabel non-fuzzy (sampah_logs_nonfuzzy)
-            \App\Models\SampahLogNonFuzzy::create([
+            SampahLogNonFuzzy::create([
                 'jarakA' => $this->jarakA,
                 'jarakB' => $this->jarakB,
                 'volume' => $volume_nf,
@@ -122,7 +126,6 @@ class MqttListener extends Command
             $this->info("Data Fuzzy: A={$this->jarakA} B={$this->jarakB} => Volume={$volume} Status={$status}");
             $this->info("Data Non-Fuzzy: Volume={$volume_nf} Status={$status_nf}");
 
-            // Reset nilai agar tidak membaca dua kali
             $this->jarakA = null;
             $this->jarakB = null;
         }
@@ -198,6 +201,20 @@ class MqttListener extends Command
         }
 
         return $denominator == 0 ? 0 : $numerator / $denominator;
+    }
+
+    private function triangle($x, $a, $b, $c) {
+        if ($x <= $a || $x >= $c) return 0;
+        elseif ($x == $b) return 1;
+        elseif ($x < $b) return ($x - $a) / ($b - $a);
+        else return ($c - $x) / ($c - $b);
+    }
+
+    private function trapezoid($x, $a, $b, $c, $d) {
+        if ($x <= $a || $x >= $d) return 0;
+        elseif ($x >= $b && $x <= $c) return 1;
+        elseif ($x > $a && $x < $b) return ($x - $a) / ($b - $a);
+        else return ($d - $x) / ($d - $c);
     }
 
 

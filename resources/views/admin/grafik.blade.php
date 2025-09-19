@@ -1,6 +1,7 @@
 @extends('layouts.app')
 
 @section('content')
+    <meta http-equiv="refresh" content="5"> <!-- Auto-refresh setiap 5 detik -->
     <h1 class="text-center mb-4">Grafik Tinggi Sampah</h1>
 
     {{-- Dropdown Filter Rentang Waktu --}}
