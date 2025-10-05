@@ -16,26 +16,19 @@ class MqttListener extends Command
 
     public function handle()
     {
-        // ==========================
-        // KONFIGURASI BROKER MQTT
-        // ==========================
         $server   = 'hilirisasi.revolusi-it.com';
         $port     = 1883;
         $clientId = 'laravel-dashboard';
         $username = 'hilirisasi';
         $password = 'penelitianhilirisasi25';
 
-        // ==========================
-        // SETUP KONEKSI MQTT (non-TLS)
-        // ==========================
         $connectionSettings = (new ConnectionSettings)
             ->setUsername($username)
             ->setPassword($password)
-            ->setUseTls(false) // non-TLS, karena port 1883
+            ->setUseTls(false)
             ->setKeepAliveInterval(60)
-            ->setReconnectAutomatically(true);
+            ->setReconnectAutomatically(true); // biar tetap reconnect
 
-        // Buat client MQTT tanpa TLS socket
         $mqtt = new MqttClient(
             $server,
             $port,
@@ -43,15 +36,12 @@ class MqttListener extends Command
             MqttClient::MQTT_3_1
         );
 
-        // ==========================
-        // KONEKSI KE BROKER
-        // ==========================
         try {
             $this->info("🔌 Connecting to MQTT broker {$server}:{$port} ...");
-            $mqtt->connect($connectionSettings, true);
+            // 🚀 Clean session = false agar kompatibel dengan auto-reconnect
+            $mqtt->connect($connectionSettings, false);
             $this->info("✅ Connected to MQTT broker {$server}");
 
-            // ✅ Subscribe ke topik dari ESP32
             $mqtt->subscribe('tong/sensor', function ($topic, $message) {
                 $data = json_decode($message, true);
 
@@ -60,7 +50,6 @@ class MqttListener extends Command
                     return;
                 }
 
-                // 💡 Adaptasi format JSON baru ke model lama
                 $bin_id = $data['id'] ?? null;
                 $jarakA = $data['d1'] ?? null;
                 $jarakB = $data['d2'] ?? null;
@@ -70,19 +59,10 @@ class MqttListener extends Command
                     return;
                 }
 
-                // ==========================
-                // PROSES FUZZY LOGIC
-                // ==========================
                 $volume = $this->fuzzyMamdani($jarakA, $jarakB);
-                $status = 'KOSONG';
-                if ($volume >= 26) $status = 'PENUH';
-                elseif ($volume >= 13) $status = 'SEDANG';
+                $status = $volume >= 26 ? 'PENUH' : ($volume >= 13 ? 'SEDANG' : 'KOSONG');
+                $rekomendasi = $volume >= 30 ? 'SEGERA BERSIHKAN' : ($volume >= 20 ? 'PERLU DIPANTAU' : 'TIDAK');
 
-                $rekomendasi = 'TIDAK';
-                if ($volume >= 30) $rekomendasi = 'SEGERA BERSIHKAN';
-                elseif ($volume >= 20) $rekomendasi = 'PERLU DIPANTAU';
-
-                // ✅ Simpan ke database (fuzzy)
                 SampahLog::create([
                     'bin_id' => $bin_id,
                     'jarakA' => $jarakA,
@@ -92,9 +72,6 @@ class MqttListener extends Command
                     'rekomendasi' => $rekomendasi,
                 ]);
 
-                // ==========================
-                // NON-FUZZY
-                // ==========================
                 $volume_nf = 35 - (($jarakA + $jarakB) / 2);
                 $status_nf = $volume_nf >= 26 ? 'PENUH' : ($volume_nf >= 13 ? 'SEDANG' : 'KOSONG');
                 $rekomendasi_nf = $volume_nf >= 30 ? 'SEGERA BERSIHKAN' : ($volume_nf >= 20 ? 'PERLU DIPANTAU' : 'TIDAK');
@@ -108,13 +85,11 @@ class MqttListener extends Command
                     'rekomendasi' => $rekomendasi_nf,
                 ]);
 
-                // ✅ Log hasil ke terminal
                 $this->info("🗑 Bin={$bin_id} | Fuzzy={$volume}({$status}) | NonFuzzy={$volume_nf}({$status_nf})");
             }, 0);
 
             $this->info('📡 Listening to tong/sensor ...');
             $mqtt->loop(true);
-
         } catch (\Exception $e) {
             $this->error('❌ MQTT connection failed: ' . $e->getMessage());
             \Log::error('MQTT Listener Error', ['error' => $e->getMessage()]);
