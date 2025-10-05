@@ -10,6 +10,7 @@ class SampahLog extends Model
     use HasFactory;
 
     protected $fillable = [
+        'bin_id',
         'jarakA',
         'jarakB',
         'volume',

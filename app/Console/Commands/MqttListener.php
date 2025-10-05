@@ -12,180 +12,155 @@ use App\Models\SampahLogNonFuzzy;
 class MqttListener extends Command
 {
     protected $signature = 'mqtt:listen';
-    protected $description = 'Listen to MQTT data from HiveMQ';
-
-    private $jarakA = null;
-    private $jarakB = null;
+    protected $description = 'Listen to MQTT data from ESP32 tong sensor';
 
     public function handle()
     {
-        $server   = 'b1d4b1389ad74d338cb784c29bc573d8.s1.eu.hivemq.cloud';
-        $port     = 8883;
+        // ==========================
+        // KONFIGURASI BROKER MQTT
+        // ==========================
+        $server   = 'hilirisasi.revolusi-it.com';
+        $port     = 1883;
         $clientId = 'laravel-dashboard';
-        $username = 'hivemq.webclient.1746241860208';
-        $password = '3OD012CLYabNqyrc,<.>';
+        $username = 'hilirisasi';
+        $password = 'penelitianhilirisasi25';
 
+        // ==========================
+        // SETUP KONEKSI MQTT (non-TLS)
+        // ==========================
         $connectionSettings = (new ConnectionSettings)
             ->setUsername($username)
             ->setPassword($password)
-            ->setUseTls(true);
+            ->setUseTls(false) // non-TLS, karena port 1883
+            ->setKeepAliveInterval(60)
+            ->setReconnectAutomatically(true);
 
+        // Buat client MQTT tanpa TLS socket
         $mqtt = new MqttClient(
             $server,
             $port,
             $clientId,
-            MqttClient::MQTT_3_1,
-            null,
-            null,
-            TlsSocket::class
+            MqttClient::MQTT_3_1
         );
 
-        $mqtt->connect($connectionSettings, true);
+        // ==========================
+        // KONEKSI KE BROKER
+        // ==========================
+        try {
+            $this->info("🔌 Connecting to MQTT broker {$server}:{$port} ...");
+            $mqtt->connect($connectionSettings, true);
+            $this->info("✅ Connected to MQTT broker {$server}");
 
-        $mqtt->subscribe('sampah/jarakA', function ($topic, $message) {
-            $this->jarakA = floatval($message);
-            $this->processIfReady();
-        }, 0);
+            // ✅ Subscribe ke topik dari ESP32
+            $mqtt->subscribe('tong/sensor', function ($topic, $message) {
+                $data = json_decode($message, true);
 
-        $mqtt->subscribe('sampah/jarakB', function ($topic, $message) {
-            $this->jarakB = floatval($message);
-            $this->processIfReady();
-        }, 0);
+                if (!$data) {
+                    $this->warn("⚠ Payload tidak valid: {$message}");
+                    return;
+                }
 
-        $this->info('Listening to sampah/jarakA and sampah/jarakB...');
-        $mqtt->loop(true);
-    }
+                // 💡 Adaptasi format JSON baru ke model lama
+                $bin_id = $data['id'] ?? null;
+                $jarakA = $data['d1'] ?? null;
+                $jarakB = $data['d2'] ?? null;
 
-   private function processIfReady()
-    {
-        if ($this->jarakA !== null && $this->jarakB !== null) {
-            // Hitung waktu mulai untuk pengujian kinerja fuzzy
-            $startTime = microtime(true);
-            // Proses Fuzzy Mamdani
-            $volume = $this->fuzzyMamdani($this->jarakA, $this->jarakB);
+                if (is_null($bin_id) || is_null($jarakA) || is_null($jarakB)) {
+                    $this->warn("⚠ Data tidak lengkap: {$message}");
+                    return;
+                }
 
-            // Hitung durasi proses fuzzy
-            $endTime = microtime(true);
-            $fuzzyExecutionTime = ($endTime - $startTime) * 1000; // dalam ms
-            $this->info("⏱ Waktu eksekusi Fuzzy Mamdani: {$fuzzyExecutionTime} ms");
+                // ==========================
+                // PROSES FUZZY LOGIC
+                // ==========================
+                $volume = $this->fuzzyMamdani($jarakA, $jarakB);
+                $status = 'KOSONG';
+                if ($volume >= 26) $status = 'PENUH';
+                elseif ($volume >= 13) $status = 'SEDANG';
 
-            $status = 'KOSONG';
-            if ($volume >= 26) {
-                $status = 'PENUH';
-            } elseif ($volume >= 13) {
-                $status = 'SEDANG';
-            }
+                $rekomendasi = 'TIDAK';
+                if ($volume >= 30) $rekomendasi = 'SEGERA BERSIHKAN';
+                elseif ($volume >= 20) $rekomendasi = 'PERLU DIPANTAU';
 
-            $rekomendasi = 'TIDAK';
-            if ($volume >= 30) {
-                $rekomendasi = 'SEGERA BERSIHKAN';
-            } elseif ($volume >= 20) {
-                $rekomendasi = 'PERLU DIPANTAU';
-            }
+                // ✅ Simpan ke database (fuzzy)
+                SampahLog::create([
+                    'bin_id' => $bin_id,
+                    'jarakA' => $jarakA,
+                    'jarakB' => $jarakB,
+                    'volume' => $volume,
+                    'status' => $status,
+                    'rekomendasi' => $rekomendasi,
+                ]);
 
-            // ✅ Simpan ke tabel fuzzy (sampah_logs)
-            SampahLog::create([
-                'jarakA' => $this->jarakA,
-                'jarakB' => $this->jarakB,
-                'volume' => $volume,
-                'status' => $status,
-                'rekomendasi' => $rekomendasi,
-            ]);
+                // ==========================
+                // NON-FUZZY
+                // ==========================
+                $volume_nf = 35 - (($jarakA + $jarakB) / 2);
+                $status_nf = $volume_nf >= 26 ? 'PENUH' : ($volume_nf >= 13 ? 'SEDANG' : 'KOSONG');
+                $rekomendasi_nf = $volume_nf >= 30 ? 'SEGERA BERSIHKAN' : ($volume_nf >= 20 ? 'PERLU DIPANTAU' : 'TIDAK');
 
-            // =============================
-            // Proses Non-Fuzzy (Threshold Biasa)
-            // =============================
-            $volume_nf = 35 - (($this->jarakA + $this->jarakB) / 2); // contoh rumus non-fuzzy
-            $status_nf = 'KOSONG';
-            if ($volume_nf >= 26) {
-                $status_nf = 'PENUH';
-            } elseif ($volume_nf >= 13) {
-                $status_nf = 'SEDANG';
-            }
+                SampahLogNonFuzzy::create([
+                    'bin_id' => $bin_id,
+                    'jarakA' => $jarakA,
+                    'jarakB' => $jarakB,
+                    'volume' => $volume_nf,
+                    'status' => $status_nf,
+                    'rekomendasi' => $rekomendasi_nf,
+                ]);
 
-            $rekomendasi_nf = 'TIDAK';
-            if ($volume_nf >= 30) {
-                $rekomendasi_nf = 'SEGERA BERSIHKAN';
-            } elseif ($volume_nf >= 20) {
-                $rekomendasi_nf = 'PERLU DIPANTAU';
-            }
+                // ✅ Log hasil ke terminal
+                $this->info("🗑 Bin={$bin_id} | Fuzzy={$volume}({$status}) | NonFuzzy={$volume_nf}({$status_nf})");
+            }, 0);
 
-            // ✅ Simpan ke tabel non-fuzzy (sampah_logs_nonfuzzy)
-            \App\Models\SampahLogNonFuzzy::create([
-                'jarakA' => $this->jarakA,
-                'jarakB' => $this->jarakB,
-                'volume' => $volume_nf,
-                'status' => $status_nf,
-                'rekomendasi' => $rekomendasi_nf,
-            ]);
+            $this->info('📡 Listening to tong/sensor ...');
+            $mqtt->loop(true);
 
-            $this->info("Data Fuzzy: A={$this->jarakA} B={$this->jarakB} => Volume={$volume} Status={$status}");
-            $this->info("Data Non-Fuzzy: Volume={$volume_nf} Status={$status_nf}");
-
-            // Reset nilai agar tidak membaca dua kali
-            $this->jarakA = null;
-            $this->jarakB = null;
+        } catch (\Exception $e) {
+            $this->error('❌ MQTT connection failed: ' . $e->getMessage());
+            \Log::error('MQTT Listener Error', ['error' => $e->getMessage()]);
         }
     }
 
 
-
-   private function fuzzyMamdani($a, $b)
+    private function fuzzyMamdani($a, $b)
     {
         $tinggiA = 35 - $a;
         $tinggiB = 35 - $b;
 
-        // Fungsi keanggotaan trapezoid
-        $trapezoid = function($x, $a, $b, $c, $d) {
-            if ($x <= $a || $x >= $d) return 0;
-            elseif ($x >= $b && $x <= $c) return 1;
-            elseif ($x > $a && $x < $b) return ($x - $a) / ($b - $a);
-            else return ($d - $x) / ($d - $c);
-        };
+        $trapezoid = fn($x, $a, $b, $c, $d)
+            => ($x <= $a || $x >= $d) ? 0 : (($x >= $b && $x <= $c) ? 1 : (($x < $b) ? ($x - $a) / ($b - $a) : ($d - $x) / ($d - $c)));
 
-        // Fungsi keanggotaan segitiga
-        $triangle = function($x, $a, $b, $c) {
-            if ($x <= $a || $x >= $c) return 0;
-            elseif ($x == $b) return 1;
-            elseif ($x < $b) return ($x - $a) / ($b - $a);
-            else return ($c - $x) / ($c - $b);
-        };
+        $triangle = fn($x, $a, $b, $c)
+            => ($x <= $a || $x >= $c) ? 0 : (($x == $b) ? 1 : (($x < $b) ? ($x - $a) / ($b - $a) : ($c - $x) / ($c - $b)));
 
-        // ❗ Perubahan utama: tinggi sekarang naik dari 20 ke 25 (bukan 30!)
-        $A_rendah  = $trapezoid($tinggiA, 0, 0, 5, 10);          // Rendah (trapesium)
-        $A_sedang  = $triangle($tinggiA, 5, 15, 25);             // Sedang (segitiga)
-        $A_tinggi  = $trapezoid($tinggiA, 20, 25, 35, 35);       // Tinggi (trapesium, revised)
+        $A_rendah = $trapezoid($tinggiA, 0, 0, 5, 10);
+        $A_sedang = $triangle($tinggiA, 5, 15, 25);
+        $A_tinggi = $trapezoid($tinggiA, 20, 25, 35, 35);
 
-        $B_rendah  = $trapezoid($tinggiB, 0, 0, 5, 10);
-        $B_sedang  = $triangle($tinggiB, 5, 15, 25);
-        $B_tinggi  = $trapezoid($tinggiB, 20, 25, 35, 35);
+        $B_rendah = $trapezoid($tinggiB, 0, 0, 5, 10);
+        $B_sedang = $triangle($tinggiB, 5, 15, 25);
+        $B_tinggi = $trapezoid($tinggiB, 20, 25, 35, 35);
 
-        // Aturan fuzzy
         $rules = [
-            [min($A_tinggi, $B_tinggi),     30],
-            [min($A_tinggi, $B_sedang),     25],
-            [min($A_tinggi, $B_rendah),     20],
-            [min($A_sedang, $B_tinggi),     25],
-            [min($A_sedang, $B_sedang),     20],
-            [min($A_sedang, $B_rendah),     15],
-            [min($A_rendah, $B_tinggi),     20],
-            [min($A_rendah, $B_sedang),     15],
-            [min($A_rendah, $B_rendah),     5],
+            [min($A_tinggi, $B_tinggi), 30],
+            [min($A_tinggi, $B_sedang), 25],
+            [min($A_tinggi, $B_rendah), 20],
+            [min($A_sedang, $B_tinggi), 25],
+            [min($A_sedang, $B_sedang), 20],
+            [min($A_sedang, $B_rendah), 15],
+            [min($A_rendah, $B_tinggi), 20],
+            [min($A_rendah, $B_sedang), 15],
+            [min($A_rendah, $B_rendah), 5],
         ];
 
-        // Defuzzifikasi centroid
         $zMin = 0;
         $zMax = 35;
         $step = 0.1;
         $numerator = 0;
         $denominator = 0;
 
-        $membership = function($x, $a, $b, $c) {
-            if ($x <= $a || $x >= $c) return 0;
-            elseif ($x == $b) return 1;
-            elseif ($x < $b) return ($x - $a) / ($b - $a);
-            else return ($c - $x) / ($c - $b);
-        };
+        $membership = fn($x, $a, $b, $c)
+            => ($x <= $a || $x >= $c) ? 0 : (($x == $b) ? 1 : (($x < $b) ? ($x - $a) / ($b - $a) : ($c - $x) / ($c - $b)));
 
         for ($z = $zMin; $z <= $zMax; $z += $step) {
             $mu = 0;
@@ -199,6 +174,4 @@ class MqttListener extends Command
 
         return $denominator == 0 ? 0 : $numerator / $denominator;
     }
-
-
 }

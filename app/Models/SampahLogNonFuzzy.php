@@ -10,5 +10,5 @@ class SampahLogNonFuzzy extends Model
     use HasFactory;
 
     protected $table = 'sampah_logs_nonfuzzy';
-    protected $fillable = ['jarakA', 'jarakB', 'volume', 'status', 'rekomendasi'];
+    protected $fillable = [ 'bin_id','jarakA', 'jarakB', 'volume', 'status', 'rekomendasi'];
 }
