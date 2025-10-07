@@ -62,7 +62,14 @@
                             <div class="info bg-white p-3 rounded text-center w-100" style="max-width: 400px;">
                                 <p><strong>Jarak Sensor A:</strong> {{ number_format($latest->jarakA, 2) }} cm</p>
                                 <p><strong>Jarak Sensor B:</strong> {{ number_format($latest->jarakB, 2) }} cm</p>
+
                                 <p><strong>Tinggi Sampah:</strong> {{ number_format($latest->volume, 2) }} cm</p>
+
+                                <!-- Tambahan: tinggi sampah dalam persen -->
+                                <p><strong>Tinggi Sampah (%):</strong>
+                                    {{ number_format(min($latest->volume / 35 * 100, 100), 2) }} %
+                                </p>
+
                                 <p><strong>Status:</strong>
                                     <span class="badge
                                         @if($latest->status == 'PENUH') bg-danger

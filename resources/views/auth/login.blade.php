@@ -14,7 +14,7 @@
 
         .login-container {
             backdrop-filter: blur(8px);
-            background-color: rgba(255, 255, 255, 0.8);
+            background-color: rgba(255, 255, 255, 0.6);
             max-width: 400px;
             margin: 8% auto;
             padding: 2rem;
@@ -47,8 +47,8 @@
 <body>
     <div class="container">
         <div class="login-container">
-            <h4 class="form-title">Monitoring Tempat Sampah</h4>
-            <h4 class="form-title">SMP Negeri 43 Semarang</h4>
+            <h4 class="form-title">Sistem Monitoring Tempat Sampah</h4>
+            <h4 class="form-title"></h4>
 
             {{-- Tampilkan pesan error --}}
             @if ($errors->has('login'))
